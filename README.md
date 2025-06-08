@@ -43,6 +43,21 @@ npm run dev
 npm run build
 ```
 
+# Initialize git repository
+git init
+
+# Add all files
+git add .
+
+# Create initial commit
+git commit -m "Initial commit: John's Garage Booking System"
+
+# Add the remote repository
+git remote add origin https://github.com/Redbox-Clients/John-Garage-booking-system.git
+
+# Push to main branch
+git push -u origin master
+
 ## Environment Variables
 
 The application uses the following webhook URLs:
