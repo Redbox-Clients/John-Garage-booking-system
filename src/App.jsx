@@ -1,13 +1,19 @@
-import React from 'react'
-import BookingForm from './components/BookingForm'
-import './App.css'
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import BookingForm from './components/BookingForm';
+import CancelBooking from './components/CancelBooking';
+import './App.css';
 
 function App() {
   return (
-    <div className="app">
-      <BookingForm />
-    </div>
-  )
+    <Router>
+      <div className="app">
+        <Routes>
+          <Route path="/" element={<BookingForm />} />
+          <Route path="/cancel-booking" element={<CancelBooking />} />
+        </Routes>
+      </div>
+    </Router>
+  );
 }
 
-export default App
+export default App;
