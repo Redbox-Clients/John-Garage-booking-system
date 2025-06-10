@@ -76,14 +76,18 @@ const BookingForm = () => {
             throw new Error(`HTTP error! status: ${response.status}`);
           }
           const data = await response.json();
-          // Assuming data is an array like [{ "2025-06-08": {...} }]
           // Transform it into a more easily accessible object for lookup
           const transformedData = {};
-          data.forEach(item => {
-            const date = Object.keys(item)[0];
-            transformedData[date] = item[date];
-          });
+          if (data && data.length > 0) {
+            const combinedSlots = data[0]; // Get the single object from the array
+            for (const dateKey in combinedSlots) {
+              if (Object.prototype.hasOwnProperty.call(combinedSlots, dateKey)) {
+                transformedData[dateKey] = combinedSlots[dateKey];
+              }
+            }
+          }
           setAvailableSlots(transformedData);
+          console.log("Available Slots (after fetch):", transformedData);
         } catch (error) {
           console.error("Failed to fetch available slots:", error);
           setErrorSlots("Failed to load available slots. Please try again.");
@@ -212,6 +216,7 @@ const BookingForm = () => {
       start_date: formattedStartDateTimeForWebhook, // New field for start
       end_date: formattedEndDateTimeForWebhook,     // New field for end
       booking_date: selectedDate.format('YYYY-MM-DD'), // Add the booking date
+      booking_time: selectedTime, // New field for booking time
       created_at: dayjs().format('YYYY-MM-DD HH:mm:ss'), // Add creation timestamp
       service: formData.service,
       notes: formData.notes
@@ -231,7 +236,6 @@ const BookingForm = () => {
       }
 
       const result = await response.json();
-      console.log("Booking successful:", result);
 
       // Add to internal session bookings (optional, if you want to track locally)
       setBookings(prev => [...prev, { ...bookingData, id: Date.now() }]);
@@ -278,7 +282,7 @@ const BookingForm = () => {
     const dateStr = date.format('YYYY-MM-DD');
     const hourKey = time.slice(0, 2); // Normalize time to match webhook data key format
     const currentBookingsForSlot = availableSlots[dateStr]?.[hourKey] || 0;
-    // A slot is bookable if its current bookings are strictly less than the max allowed
+    // A slot is bookable if its current bookings are strictly less than the maximum allowed bookings
     return currentBookingsForSlot < MAX_BOOKINGS_PER_HOUR_SLOT;
   };
 
@@ -638,14 +642,16 @@ const BookingForm = () => {
                   {TIME_SLOTS.map((time) => {
                     const dateStr = formData.date ? formData.date.format('YYYY-MM-DD') : null;
                     const hourKey = time.slice(0, 2); // Normalize time to match webhook data key format
+                    
+                    console.log(`Mapping slot: DateStr=${dateStr}, HourKey=${hourKey}, availableSlots[dateStr]=`, availableSlots[dateStr]);
+
                     const currentBookingsForSlot = dateStr && availableSlots[dateStr] ? availableSlots[dateStr][hourKey] || 0 : 0;
                     
-                    // Determine if the slot is fully booked (should be disabled)
+                    // Determine if the slot is fully booked (should be disabled) if it has reached or exceeded MAX_BOOKINGS_PER_HOUR_SLOT
                     const isFullyBooked = currentBookingsForSlot >= MAX_BOOKINGS_PER_HOUR_SLOT;
                     
-                    // Determine if the slot has limited availability (should be greyed out, but still clickable if not fully booked)
-                    // Only grey out if current bookings are greater than 1
-                    const isGreyedOut = currentBookingsForSlot > 1;
+                    // Determine if the slot should be greyed out (visually disabled) only if it is fully booked
+                    const isGreyedOut = isFullyBooked;
 
                     return (
                       <Grid item key={time} xs={4} sm={3} md={2.4}> {/* Responsive column sizing */}
