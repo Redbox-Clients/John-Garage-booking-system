@@ -23,7 +23,7 @@ const CancelBooking = () => {
     setError(null);
 
     try {
-      const response = await fetch('https://redboxrob.app.n8n.cloud/webhook/9497b73f-9535-4bb9-a365-521d1c94b2a0', {
+      const response = await fetch('https://redboxrob.app.n8n.cloud/webhook/9069c6f8-96b2-44a7-bda9-ce78fae02e3e', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -36,6 +36,8 @@ const CancelBooking = () => {
       }
 
       const data = await response.json();
+      console.log('Full n8n response:', data);
+      console.log('What n8n received as bookingId:', data.bookingId || 'No bookingId in response');
       console.log('Cancellation response:', data);
       setCancelled(true);
     } catch (error) {
