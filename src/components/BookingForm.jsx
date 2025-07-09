@@ -1,840 +1,545 @@
-import React, { useState, useEffect } from 'react';
-import { TextField, Button, Box, Typography, Container, Paper, Stepper, Step, StepLabel, Grid, CircularProgress, Alert } from '@mui/material';
-import { DatePicker } from '@mui/x-date-pickers/DatePicker';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
-import './BookingForm.css';
+import React, { useState, useEffect, useMemo } from 'react';
 
-dayjs.extend(utc);
-dayjs.extend(timezone);
+// Helper function to get days in a month
+const getDaysInMonth = (year, month) => {
+  return new Date(year, month + 1, 0).getDate();
+};
 
-const MAX_BOOKINGS_PER_HOUR_SLOT = 2;
-const TIME_SLOTS = [
-  '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00'
-];
+// Helper function to get the day of the week for the first day of the month
+const getFirstDayOfMonth = (year, month) => {
+  return new Date(year, month, 1).getDay(); // 0 for Sunday, 1 for Monday, etc.
+};
 
-const IRISH_BANK_HOLIDAYS = [
-  // 2024
-  '2024-01-01', // New Year's Day
-  '2024-03-18', // St. Patrick's Day (observed)
-  '2024-04-01', // Easter Monday
-  '2024-05-06', // May Bank Holiday
-  '2024-06-03', // June Bank Holiday
-  '2024-08-05', // August Bank Holiday
-  '2024-10-28', // October Bank Holiday
-  '2024-12-25', // Christmas Day
-  '2024-12-26', // St. Stephen's Day
-  // 2025
-  '2025-01-01', // New Year's Day
-  '2025-03-17', // St. Patrick's Day
-  '2025-04-21', // Easter Monday
-  '2025-05-05', // May Bank Holiday
-  '2025-06-02', // June Bank Holiday
-  '2025-08-04', // August Bank Holiday
-  '2025-10-27', // October Bank Holiday
-  '2025-12-25', // Christmas Day
-  '2025-12-26', // St. Stephen's Day
-];
-
-const steps = ['Personal Info', 'Date & Time', 'Service Details', 'Confirmation'];
-
-const BookingForm = () => {
+// Main Booking Form component
+export default function BookingForm() {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    phone: '',
-    reg1: '', // First part of registration (2 digits)
-    reg2: '', // Second part of registration (3 chars)
-    reg3: '', // Third part of registration (8 digits)
-    make: '',
-    model: '',
-    date: null,
-    time: '',
-    service: '',
-    notes: ''
+    phoneNumber: '+353', // Initialized with the +353 prefix
+    carReg: '',
+    carMake: '',
+    carModel: '',
+    appointmentDate: '', // Will store the selected date string (YYYY-MM-DD)
+    carNeeds: '',
   });
 
-  const [activeStep, setActiveStep] = useState(0);
-  const [bookings, setBookings] = useState([]); // This state is for internal bookings made within the form session
-  const [availableSlots, setAvailableSlots] = useState({}); // Stores data from webhook
-  const [loadingSlots, setLoadingSlots] = useState(false);
-  const [errorSlots, setErrorSlots] = useState(null);
-  const [submittingBooking, setSubmittingBooking] = useState(false);
-  const [submissionError, setSubmissionError] = useState(null);
+  const [loading, setLoading] = useState(false); // For form submission
+  const [message, setMessage] = useState(''); // General form messages (success/error)
+  const [messageType, setMessageType] = useState(''); // 'success' or 'error'
 
+  // States for custom datepicker logic
+  const [unavailableDates, setUnavailableDates] = useState([]); // Stores dates from webhook (YYYY-MM-DD)
+  const [fetchingAvailability, setFetchingAvailability] = useState(true); // Loading state for availability fetch
+  const [availabilityError, setAvailabilityError] = useState(null); // Error for availability fetch
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  const [showCalendar, setShowCalendar] = useState(false); // To toggle calendar visibility
+  const [dateSelectionError, setDateSelectionError] = useState(null);
+
+  // Your n8n webhook URL for availability check (GET)
+  const n8nAvailabilityWebhookUrl = 'https://redboxrob.app.n8n.cloud/webhook/a807a240-f285-4d9e-969b-a3107955c178';
+
+  // Your n8n webhook URL for submitting bookings (POST)
+  const n8nBookingWebhookUrl = 'https://redboxrob.app.n8n.cloud/webhook/797f3300-663d-42bb-9337-92790b5d26a8';
+
+  // Define apiKey as an empty string as per instructions, even if not used by this specific n8n webhook
+  const apiKey = "";
+
+  // Fetch unavailable dates from n8n on component mount
   useEffect(() => {
-    if (activeStep === 1) { // When Date & Time page is active
-      const fetchAvailableSlots = async () => {
-        setLoadingSlots(true);
-        setErrorSlots(null);
-        try {
-          const response = await fetch('https://redboxrob.app.n8n.cloud/webhook/a807a240-f285-4d9e-969b-a3107955c178');
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          const data = await response.json();
-          // Transform it into a more easily accessible object for lookup
-          const transformedData = {};
-          if (data && data.length > 0) {
-            const combinedSlots = data[0]; // Get the single object from the array
-            for (const dateKey in combinedSlots) {
-              if (Object.prototype.hasOwnProperty.call(combinedSlots, dateKey)) {
-                transformedData[dateKey] = combinedSlots[dateKey];
-              }
-            }
-          }
-          setAvailableSlots(transformedData);
-          console.log("Available Slots (after fetch):", transformedData);
-        } catch (error) {
-          console.error("Failed to fetch available slots:", error);
-          setErrorSlots("Failed to load available slots. Please try again.");
-        } finally {
-          setLoadingSlots(false);
+    const fetchUnavailableDates = async () => {
+      try {
+        setFetchingAvailability(true);
+        setAvailabilityError(null);
+        const response = await fetch(n8nAvailabilityWebhookUrl);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
-      };
-      fetchAvailableSlots();
-    }
-  }, [activeStep]);
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
-  const handleReg1Change = (e) => {
-    const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 3);
-    setFormData(prev => ({ ...prev, reg1: value }));
-  };
-
-  const handleReg2Change = (e) => {
-    const value = e.target.value.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 3);
-    setFormData(prev => ({ ...prev, reg2: value }));
-  };
-
-  const handleReg3Change = (e) => {
-    const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 8);
-    setFormData(prev => ({ ...prev, reg3: value }));
-  };
-
-  const handleDateChange = (newDate) => {
-    setFormData(prev => ({
-      ...prev,
-      date: newDate,
-      time: '' // Reset time when date changes
-    }));
-  };
-
-  const handleTimeSelect = (time) => {
-    setFormData(prev => ({
-      ...prev,
-      time
-    }));
-  };
-
-  // Check if a date is a weekend or bank holiday
-  const isWeekendOrHoliday = (date) => {
-    const dayOfWeek = date.day(); // 0 is Sunday, 6 is Saturday
-    const dateStr = date.format('YYYY-MM-DD');
-    return dayOfWeek === 0 || dayOfWeek === 6 || IRISH_BANK_HOLIDAYS.includes(dateStr);
-  };
-
-  // Determines if a date should be disabled in the calendar
-  const isDateDisabled = (date) => {
-    const today = dayjs().startOf('day');
-    const maxDate = today.add(30, 'day');
-    
-    // Disable if outside allowed range, if it's today, or if it's a weekend/holiday
-    if (date.isBefore(today, 'day') || 
-        date.isSame(today, 'day') || 
-        date.isAfter(maxDate, 'day') ||
-        isWeekendOrHoliday(date)) {
-      return true;
-    }
-
-    const dateStr = date.format('YYYY-MM-DD');
-    // If there's no data for this date, assume it's fully available
-    if (!availableSlots[dateStr]) {
-        return false; 
-    }
-
-    // Check if all slots for this date are fully booked (>= MAX_BOOKINGS_PER_HOUR_SLOT)
-    const allSlotsFullyBooked = TIME_SLOTS.every(time => {
-        const hourKey = time.slice(0, 2); // Normalize time to match webhook data key format
-        const currentBookingsForSlot = availableSlots[dateStr]?.[hourKey] || 0;
-        return currentBookingsForSlot >= MAX_BOOKINGS_PER_HOUR_SLOT;
-    });
-
-    return allSlotsFullyBooked;
-  };
-
-  const handleNext = () => {
-    setActiveStep((prevActiveStep) => prevActiveStep + 1);
-  };
-
-  const handleBack = () => {
-    setActiveStep((prevActiveStep) => prevActiveStep - 1);
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSubmittingBooking(true);
-    setSubmissionError(null);
-
-    // Before submitting, double-check if the selected slot is still bookable
-    if (!isTimeSlotBookable(formData.date, formData.time)) {
-      setSubmissionError("The selected time slot is no longer available. Please choose another.");
-      setSubmittingBooking(false);
-      return; 
-    }
-
-    const selectedDate = formData.date; 
-    const selectedTime = formData.time; 
-    const targetTimezone = 'Europe/Dublin';
-
-    // Construct start date/time in the desired display timezone (Europe/Dublin)
-    const startTimeStringInDublin = `${selectedDate.format('YYYY-MM-DD')}T${selectedTime}:00`;
-    const startDateTimeInDublin = dayjs.tz(startTimeStringInDublin, 'YYYY-MM-DDTHH:mm', targetTimezone);
-    const formattedStartDateTimeForWebhook = startDateTimeInDublin.utc().toISOString();
-
-    // Calculate end date/time (1 hour after start) in the desired display timezone
-    const endDateTimeInDublin = startDateTimeInDublin.add(1, 'hour');
-    const formattedEndDateTimeForWebhook = endDateTimeInDublin.utc().toISOString();
-
-    const bookingData = {
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      reg: `${formData.reg1}${formData.reg2}${formData.reg3}`, // Concatenated registration
-      make: formData.make,
-      model: formData.model,
-      start_date: formattedStartDateTimeForWebhook, // New field for start
-      end_date: formattedEndDateTimeForWebhook,     // New field for end
-      booking_date: selectedDate.format('YYYY-MM-DD'), // Add the booking date
-      booking_time: selectedTime, // New field for booking time
-      created_at: dayjs().format('YYYY-MM-DD HH:mm:ss'), // Add creation timestamp
-      service: formData.service,
-      notes: formData.notes
+        const data = await response.json();
+        setUnavailableDates(data.dates || []);
+      } catch (e) {
+        console.error("Failed to fetch unavailable dates:", e);
+        setAvailabilityError("Failed to load unavailable dates. Please try again later.");
+      } finally {
+        setFetchingAvailability(false);
+      }
     };
 
+    fetchUnavailableDates();
+  }, [n8nAvailabilityWebhookUrl, apiKey]);
+
+  // Helper to format date to YYYY-MM-DD
+  const formatDate = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Get today's date (start of the disabled range)
+  const todayDate = useMemo(() => { // Renamed from getTodayDate to todayDate to reflect it's a value, not a function
+    const today = new Date();
+    // Normalize to start of day for accurate comparison
+    today.setHours(0, 0, 0, 0);
+    return today;
+  }, []);
+
+  // Calculate the date one month from today (end of the disabled range)
+  const oneMonthFromToday = useMemo(() => { // Renamed from getOneMonthFromToday to oneMonthFromToday
+    const today = new Date();
+    const oneMonthLater = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
+    // Normalize to end of day for accurate comparison to include the full day
+    oneMonthLater.setHours(23, 59, 59, 999);
+    return oneMonthLater;
+  }, []);
+
+  // Generate calendar days for the current month
+  const calendarDays = useMemo(() => {
+    const daysInMonth = getDaysInMonth(currentYear, currentMonth);
+    const firstDayOfWeek = getFirstDayOfMonth(currentYear, currentMonth); // 0 for Sunday
+
+    const days = [];
+    // Add leading empty cells for days before the 1st of the month
+    for (let i = 0; i < firstDayOfWeek; i++) {
+      days.push(null);
+    }
+
+    // Add actual days of the month
+    for (let i = 1; i <= daysInMonth; i++) {
+      const date = new Date(currentYear, currentMonth, i);
+      // Normalize to start of day for consistent comparison
+      date.setHours(0, 0, 0, 0);
+      days.push(date);
+    }
+    return days;
+  }, [currentYear, currentMonth]);
+
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const handlePrevMonth = () => {
+    setCurrentMonth(prevMonth => {
+      if (prevMonth === 0) {
+        setCurrentYear(prevYear => prevYear - 1);
+        return 11;
+      }
+      return prevMonth - 1;
+    });
+  };
+
+  const handleNextMonth = () => {
+    setCurrentMonth(prevMonth => {
+      if (prevMonth === 11) {
+        setCurrentYear(prevYear => prevYear + 1);
+        return 0;
+      }
+      return prevMonth + 1;
+    });
+  };
+
+  const handleDayClick = (date) => {
+    if (!date) return;
+
+    const dateString = formatDate(date);
+
+    // Check if the date is a weekend (Saturday = 6, Sunday = 0)
+    if (date.getDay() === 0 || date.getDay() === 6) {
+      setMessage(`Weekends are not available for appointments. Please choose a weekday.`);
+      setMessageType('error');
+      setFormData(prevData => ({ ...prevData, appointmentDate: '' }));
+      setDateSelectionError(`Weekends are not available for appointments. Please choose a weekday.`);
+      return;
+    }
+
+    // Check if the date is specifically unavailable from webhook
+    if (unavailableDates.includes(dateString)) {
+      setMessage(`Date ${dateString} is unavailable. Please choose another date.`);
+      setMessageType('error');
+      setFormData(prevData => ({ ...prevData, appointmentDate: '' }));
+      setDateSelectionError(`Date ${dateString} is unavailable. Please choose another date.`);
+    }
+    // Check if the date is in the disabled range (today up to one month from today)
+    else if (date >= todayDate && date <= oneMonthFromToday) { // Use todayDate and oneMonthFromToday directly
+      setMessage(`Appointments cannot be booked within the next month. Please select a date after ${formatDate(oneMonthFromToday)}.`);
+      setMessageType('error');
+      setFormData(prevData => ({ ...prevData, appointmentDate: '' }));
+      setDateSelectionError(`Appointments cannot be booked within the next month. Please select a date after ${formatDate(oneMonthFromToday)}.`);
+    }
+    // Check if the date is in the past
+    else if (date < todayDate) { // Use todayDate directly
+      setMessage(`You cannot select a past date (${dateString}).`);
+      setMessageType('error');
+      setFormData(prevData => ({ ...prevData, appointmentDate: '' }));
+      setDateSelectionError(`You cannot select a past date (${dateString}).`);
+    }
+    else {
+      setFormData(prevData => ({ ...prevData, appointmentDate: dateString }));
+      setMessage('');
+      setMessageType('');
+      setDateSelectionError(null);
+      setShowCalendar(false); // Hide calendar after selection
+    }
+  };
+
+  // Handle input changes for form fields other than date
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setMessage('');
+    setMessageType('');
+    setDateSelectionError(null);
+
+    if (name === 'phoneNumber') {
+      let newValue = value;
+      if (!newValue.startsWith('+353')) {
+        newValue = '+353' + newValue.replace(/^\+353/, '');
+      }
+      const digitsOnly = newValue.replace(/^\+353/, '').replace(/[^0-9]/g, '');
+      newValue = '+353' + digitsOnly;
+
+      setFormData(prevData => ({
+        ...prevData,
+        [name]: newValue
+      }));
+    } else {
+      setFormData(prevData => ({
+        ...prevData,
+        [name]: value
+      }));
+    }
+  };
+
+  // Handle form submission
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage('');
+    setMessageType('');
+    setDateSelectionError(null);
+
+    // Basic client-side validation
+    if (!formData.name || !formData.email || !formData.phoneNumber || !formData.carReg || !formData.appointmentDate || !formData.carNeeds) {
+      setMessage('Please fill in all required fields.');
+      setMessageType('error');
+      setLoading(false);
+      return;
+    }
+
+    // Final check for date validity before submission
+    const selectedDateObj = new Date(formData.appointmentDate);
+    // Normalize selectedDateObj to start of day for consistent comparison
+    selectedDateObj.setHours(0, 0, 0, 0);
+
+    // Check if the selected date is a weekend
+    if (selectedDateObj.getDay() === 0 || selectedDateObj.getDay() === 6) {
+      setMessage(`Weekends are not available for appointments. Please choose a weekday.`);
+      setMessageType('error');
+      setLoading(false);
+      return;
+    } else if (unavailableDates.includes(formData.appointmentDate)) {
+      setMessage(`The selected date (${formData.appointmentDate}) is unavailable. Please choose another day.`);
+      setMessageType('error');
+      setLoading(false);
+      return;
+    } else if (selectedDateObj < todayDate) { // Use todayDate directly
+      setMessage(`You cannot select a past date (${formData.appointmentDate}).`);
+      setMessageType('error');
+      setLoading(false);
+      return;
+    } else if (selectedDateObj >= todayDate && selectedDateObj <= oneMonthFromToday) { // Use todayDate and oneMonthFromToday directly
+      setMessage(`Appointments cannot be booked within the next month. Please select a date after ${formatDate(oneMonthFromToday)}.`);
+      setMessageType('error');
+      setLoading(false);
+      return;
+    }
+
     try {
-      const response = await fetch('https://redboxrob.app.n8n.cloud/webhook/797f3300-663d-42bb-9337-92790b5d26a8', {
+      const dataToSend = {
+        ...formData,
+        status: 'pending'
+      };
+
+      const url = `${n8nBookingWebhookUrl}${apiKey ? `?key=${apiKey}` : ''}`;
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(bookingData),
+        body: JSON.stringify(dataToSend),
       });
 
-      if (!response.ok) {
-        throw new Error(`Booking failed with status: ${response.status}`);
+      if (response.ok) {
+        setMessage('Booking submitted successfully! The garage will confirm your appointment.');
+        setMessageType('success');
+        setFormData({
+          name: '',
+          email: '',
+          phoneNumber: '+353',
+          carReg: '',
+          carMake: '',
+          carModel: '',
+          appointmentDate: '',
+          carNeeds: ''
+        });
+        const refreshResponse = await fetch(n8nAvailabilityWebhookUrl);
+        if (refreshResponse.ok) {
+          const refreshedData = await refreshResponse.json();
+          setUnavailableDates(refreshedData.dates || []);
+        } else {
+          console.error('Failed to refresh availability after booking:', refreshResponse.statusText);
+        }
+      } else {
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch (jsonError) {
+          errorData = { message: 'Unknown error occurred.' };
+        }
+        setMessage(`Submission failed: ${errorData.message || response.statusText}. Please try again.`);
+        setMessageType('error');
       }
-
-      const result = await response.json();
-
-      // Add to internal session bookings (optional, if you want to track locally)
-      setBookings(prev => [...prev, { ...bookingData, id: Date.now() }]);
-
-      // IMPORTANT: Update availableSlots locally to reflect the new booking
-      setAvailableSlots(prevSlots => {
-        const dateStr = selectedDate.format('YYYY-MM-DD');
-        const updatedSlotsForDate = { ...prevSlots[dateStr] };
-        const hourKey = selectedTime.slice(0, 2); // Normalize time for updating
-        updatedSlotsForDate[hourKey] = (updatedSlotsForDate[hourKey] || 0) + 1;
-        return {
-          ...prevSlots,
-          [dateStr]: updatedSlotsForDate,
-        };
-      });
-
-      setActiveStep(steps.length - 1); // Move to the last step (Confirmation)
-
     } catch (error) {
-      console.error("Error submitting booking:", error);
-      setSubmissionError("Failed to submit booking. Please try again.");
+      console.error('Error submitting form:', error);
+      setMessage('Failed to submit your booking. This is most likely due to **Cross-Origin Resource Sharing (CORS)** configuration on your n8n webhook. Please ensure your n8n workflow for `https://redboxrob.app.n8n.cloud/webhook/797f3300-663d-42bb-9337-92790b5d26a8` is active and configured to send `Access-Control-Allow-Origin: *` or your specific application domain in its HTTP Response headers. Also, check your internet connection.');
+      setMessageType('error');
     } finally {
-      setSubmittingBooking(false);
-    }
-  };
-
-  const handleStartNewBooking = () => {
-    setFormData({
-      name: '',
-      email: '',
-      phone: '',
-      date: null,
-      time: '',
-      service: '',
-      notes: ''
-    });
-    setActiveStep(0);
-    setSubmissionError(null); // Clear any previous submission errors
-  };
-
-  // Determines if a time slot is generally bookable (less than MAX_BOOKINGS_PER_HOUR_SLOT)
-  const isTimeSlotBookable = (date, time) => {
-    if (!date) return false; 
-    const dateStr = date.format('YYYY-MM-DD');
-    const hourKey = time.slice(0, 2); // Normalize time to match webhook data key format
-    const currentBookingsForSlot = availableSlots[dateStr]?.[hourKey] || 0;
-    // A slot is bookable if its current bookings are strictly less than the maximum allowed bookings
-    return currentBookingsForSlot < MAX_BOOKINGS_PER_HOUR_SLOT;
-  };
-
-  const renderStepContent = (step) => {
-    switch (step) {
-      case 0:
-        return (
-          <Box sx={{ p: { xs: 2, md: 2.5 } }} className="form-step">
-            <Typography variant="h6" gutterBottom sx={{ mb: { xs: 2, md: 2.5 }, fontWeight: 500 }}>Personal Information</Typography>
-            <TextField
-              fullWidth
-              label="Name"
-              name="name"
-              value={formData.name}
-              onChange={handleInputChange}
-              required
-              margin="normal"
-              variant="outlined"
-              size="small"
-              sx={{ 
-                mb: { xs: '16px', md: '20px' },
-                '& .MuiOutlinedInput-root': { 
-                  borderRadius: '10px',
-                  '& input:-webkit-autofill': {
-                    WebkitBoxShadow: '0 0 0 100px white inset',
-                    WebkitTextFillColor: '#000000',
-                    transition: 'background-color 5000s ease-in-out 0s'
-                  }
-                },
-                display: 'inline-flex',
-                flexDirection: 'column',
-                position: 'relative',
-                minWidth: 0,
-                padding: 0,
-                margin: 0,
-                border: 0,
-                verticalAlign: 'top',
-                width: '100%'
-              }}
-            />
-            <TextField
-              fullWidth
-              label="Email"
-              name="email"
-              type="email"
-              value={formData.email}
-              onChange={handleInputChange}
-              required
-              margin="normal"
-              variant="outlined"
-              size="small"
-              sx={{ 
-                mb: { xs: '16px', md: '20px' },
-                '& .MuiOutlinedInput-root': { 
-                  borderRadius: '10px',
-                  '& input:-webkit-autofill': {
-                    WebkitBoxShadow: '0 0 0 100px white inset',
-                    WebkitTextFillColor: '#000000',
-                    transition: 'background-color 5000s ease-in-out 0s'
-                  }
-                },
-                display: 'inline-flex',
-                flexDirection: 'column',
-                position: 'relative',
-                minWidth: 0,
-                padding: 0,
-                margin: 0,
-                border: 0,
-                verticalAlign: 'top',
-                width: '100%'
-              }}
-            />
-            <TextField
-              fullWidth
-              label="Phone"
-              name="phone"
-              value={formData.phone}
-              onChange={handleInputChange}
-              required
-              margin="normal"
-              variant="outlined"
-              size="small"
-              sx={{ 
-                mb: { xs: '16px', md: '20px' },
-                '& .MuiOutlinedInput-root': { 
-                  borderRadius: '10px',
-                  '& input:-webkit-autofill': {
-                    WebkitBoxShadow: '0 0 0 100px white inset',
-                    WebkitTextFillColor: '#000000',
-                    transition: 'background-color 5000s ease-in-out 0s'
-                  }
-                },
-                display: 'inline-flex',
-                flexDirection: 'column',
-                position: 'relative',
-                minWidth: 0,
-                padding: 0,
-                margin: 0,
-                border: 0,
-                verticalAlign: 'top',
-                width: '100%'
-              }}
-            />
-
-            <Grid container spacing={2} sx={{ mb: { xs: '16px', md: '20px' } }}>
-              <Grid item xs={3}>
-                <TextField
-                  fullWidth
-                  label="Reg"
-                  name="reg1"
-                  value={formData.reg1}
-                  onChange={handleReg1Change}
-                  inputProps={{ maxLength: 3 }}
-                  required
-                  variant="outlined"
-                  size="small"
-                  sx={{ 
-                    '& .MuiOutlinedInput-root': { 
-                      borderRadius: '10px',
-                      '& input:-webkit-autofill': {
-                        WebkitBoxShadow: '0 0 0 100px white inset',
-                        WebkitTextFillColor: '#000000',
-                        transition: 'background-color 5000s ease-in-out 0s'
-                      }
-                    },
-                    display: 'inline-flex',
-                    flexDirection: 'column',
-                    position: 'relative',
-                    minWidth: 0,
-                    padding: 0,
-                    margin: 0,
-                    border: 0,
-                    verticalAlign: 'top',
-                    width: '100%'
-                  }}
-                />
-              </Grid>
-              <Grid item xs={4}>
-                <TextField
-                  fullWidth
-                  label="Reg"
-                  name="reg2"
-                  value={formData.reg2}
-                  onChange={handleReg2Change}
-                  inputProps={{ maxLength: 3 }}
-                  required
-                  variant="outlined"
-                  size="small"
-                  sx={{ 
-                    '& .MuiOutlinedInput-root': { 
-                      borderRadius: '10px',
-                      '& input:-webkit-autofill': {
-                        WebkitBoxShadow: '0 0 0 100px white inset',
-                        WebkitTextFillColor: '#000000',
-                        transition: 'background-color 5000s ease-in-out 0s'
-                      }
-                    },
-                    display: 'inline-flex',
-                    flexDirection: 'column',
-                    position: 'relative',
-                    minWidth: 0,
-                    padding: 0,
-                    margin: 0,
-                    border: 0,
-                    verticalAlign: 'top',
-                    width: '100%'
-                  }}
-                />
-              </Grid>
-              <Grid item xs={5}>
-                <TextField
-                  fullWidth
-                  label="Reg"
-                  name="reg3"
-                  value={formData.reg3}
-                  onChange={handleReg3Change}
-                  inputProps={{ maxLength: 8 }}
-                  required
-                  variant="outlined"
-                  size="small"
-                  sx={{ 
-                    '& .MuiOutlinedInput-root': { 
-                      borderRadius: '10px',
-                      '& input:-webkit-autofill': {
-                        WebkitBoxShadow: '0 0 0 100px white inset',
-                        WebkitTextFillColor: '#000000',
-                        transition: 'background-color 5000s ease-in-out 0s'
-                      }
-                    },
-                    display: 'inline-flex',
-                    flexDirection: 'column',
-                    position: 'relative',
-                    minWidth: 0,
-                    padding: 0,
-                    margin: 0,
-                    border: 0,
-                    verticalAlign: 'top',
-                    width: '100%'
-                  }}
-                />
-              </Grid>
-            </Grid>
-
-            <TextField
-              fullWidth
-              label="Car Make"
-              name="make"
-              value={formData.make}
-              onChange={handleInputChange}
-              required
-              margin="normal"
-              variant="outlined"
-              size="small"
-              sx={{ 
-                mb: { xs: '16px', md: '20px' },
-                '& .MuiOutlinedInput-root': { 
-                  borderRadius: '10px',
-                  '& input:-webkit-autofill': {
-                    WebkitBoxShadow: '0 0 0 100px white inset',
-                    WebkitTextFillColor: '#000000',
-                    transition: 'background-color 5000s ease-in-out 0s'
-                  }
-                },
-                display: 'inline-flex',
-                flexDirection: 'column',
-                position: 'relative',
-                minWidth: 0,
-                padding: 0,
-                margin: 0,
-                border: 0,
-                verticalAlign: 'top',
-                width: '100%'
-              }}
-            />
-            <TextField
-              fullWidth
-              label="Car Model"
-              name="model"
-              value={formData.model}
-              onChange={handleInputChange}
-              required
-              margin="normal"
-              variant="outlined"
-              size="small"
-              sx={{ 
-                mb: { xs: '16px', md: '20px' },
-                '& .MuiOutlinedInput-root': { 
-                  borderRadius: '10px',
-                  '& input:-webkit-autofill': {
-                    WebkitBoxShadow: '0 0 0 100px white inset',
-                    WebkitTextFillColor: '#000000',
-                    transition: 'background-color 5000s ease-in-out 0s'
-                  }
-                },
-                display: 'inline-flex',
-                flexDirection: 'column',
-                position: 'relative',
-                minWidth: 0,
-                padding: 0,
-                margin: 0,
-                border: 0,
-                verticalAlign: 'top',
-                width: '100%'
-              }}
-            />
-
-            <Button
-              variant="contained"
-              onClick={handleNext}
-              disabled={!formData.name || !formData.email || !formData.phone ||
-                        !formData.reg1 || !formData.reg2 || !formData.reg3 ||
-                        !formData.make || !formData.model}
-              fullWidth
-              sx={{
-                mt: { xs: 2, md: 2.5 },
-                borderRadius: '10px',
-                py: 1.2,
-                fontSize: { xs: '1rem', md: '0.95rem' },
-                boxShadow: '0 3px 8px rgba(0, 0, 0, 0.1)',
-                '&:hover': { boxShadow: '0 5px 12px rgba(0, 0, 0, 0.15)' }
-              }}
-            >
-              Next
-            </Button>
-          </Box>
-        );
-      case 1:
-        return (
-          <Box sx={{ p: { xs: 2, md: 2.5 } }} className="form-step">
-            <Typography variant="h6" gutterBottom sx={{ mb: { xs: 2, md: 2.5 }, fontWeight: 500 }}>Select Date and Time</Typography>
-            
-            {loadingSlots && (
-              <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
-                <CircularProgress />
-              </Box>
-            )}
-
-            {errorSlots && (
-              <Typography color="error" align="center" sx={{ my: 4 }}>{errorSlots}</Typography>
-            )}
-
-            {!loadingSlots && !errorSlots && (
-              <LocalizationProvider dateAdapter={AdapterDayjs}>
-                <DatePicker
-                  label="Select Date"
-                  value={formData.date}
-                  onChange={handleDateChange}
-                  shouldDisableDate={isDateDisabled}
-                  slotProps={{
-                    textField: {
-                      fullWidth: true,
-                      margin: "normal",
-                      variant: "outlined",
-                      size: "small",
-                      sx: { 
-                        mb: { xs: '16px', md: '20px' }, 
-                        '& .MuiOutlinedInput-root': { 
-                          borderRadius: '10px',
-                          cursor: 'pointer',
-                          '& .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(0, 0, 0, 0.23)'
-                          },
-                          '&:hover .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(0, 0, 0, 0.23)'
-                          },
-                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(0, 0, 0, 0.23)'
-                          }
-                        },
-                        '& .MuiInputAdornment-root': {
-                          '& .MuiButtonBase-root': {
-                            padding: '4px',
-                            '&:hover': {
-                              backgroundColor: 'transparent'
-                            },
-                            '&:focus': {
-                              backgroundColor: 'transparent'
-                            }
-                          }
-                        }
-                      },
-                      inputProps: {
-                        readOnly: true,
-                        style: { cursor: 'pointer' }
-                      }
-                    },
-                  }}
-                  sx={{ width: '100%' }}
-                />
-              </LocalizationProvider>
-            )}
-            
-            {formData.date && !loadingSlots && !errorSlots && (
-              <Box className="time-slots" sx={{ mt: { xs: 2, md: 2.5 }, mb: { xs: 2, md: 2.5 } }}>
-                <Typography variant="subtitle2" sx={{ mb: { xs: 1.5, md: 2 }, fontWeight: 500 }}>Available Time:</Typography>
-                <Grid container spacing={{ xs: 0.5, md: 1.5 }} justifyContent="flex-start">
-                  {TIME_SLOTS.map((time) => {
-                    const dateStr = formData.date ? formData.date.format('YYYY-MM-DD') : null;
-                    const hourKey = time.slice(0, 2); // Normalize time to match webhook data key format
-                    
-                    console.log(`Mapping slot: DateStr=${dateStr}, HourKey=${hourKey}, availableSlots[dateStr]=`, availableSlots[dateStr]);
-
-                    const currentBookingsForSlot = dateStr && availableSlots[dateStr] ? availableSlots[dateStr][hourKey] || 0 : 0;
-                    
-                    // Determine if the slot is fully booked (should be disabled) if it has reached or exceeded MAX_BOOKINGS_PER_HOUR_SLOT
-                    const isFullyBooked = currentBookingsForSlot >= MAX_BOOKINGS_PER_HOUR_SLOT;
-                    
-                    // Determine if the slot should be greyed out (visually disabled) only if it is fully booked
-                    const isGreyedOut = isFullyBooked;
-
-                    return (
-                      <Grid item key={time} xs={4} sm={3} md={2.4}> {/* Responsive column sizing */}
-                        <Button
-                          variant={formData.time === time ? "contained" : "outlined"}
-                          onClick={() => handleTimeSelect(time)}
-                          disabled={isFullyBooked} // Directly use isFullyBooked for disabling
-                          fullWidth
-                          sx={{
-                            borderRadius: '6px',
-                            py: { xs: 0.8, md: 1 },
-                            fontSize: { xs: '0.75rem', md: '0.85rem' },
-                            backgroundColor: isGreyedOut ? '#f0f0f0' : (formData.time === time ? '#007bff' : 'white'),
-                            color: isGreyedOut ? '#888' : (formData.time === time ? 'white' : '#007bff'),
-                            borderColor: isGreyedOut ? '#e0e0e0' : '#007bff',
-                            boxShadow: isGreyedOut ? 'none' : '0 1px 3px rgba(0, 0, 0, 0.05)',
-                            '&:hover': {
-                              backgroundColor: isGreyedOut ? '#f0f0f0' : (formData.time === time ? '#0056b3' : '#e6f2ff'),
-                              borderColor: isGreyedOut ? '#e0e0e0' : '#0056b3',
-                              boxShadow: isGreyedOut ? 'none' : '0 2px 5px rgba(0, 0, 0, 0.1)',
-                            },
-                            '&.Mui-disabled': {
-                              backgroundColor: '#f0f0f0',
-                              color: '#cccccc',
-                              borderColor: '#e0e0e0',
-                              boxShadow: 'none',
-                              pointerEvents: 'none', // Crucial to prevent clicks
-                            },
-                          }}
-                        >
-                          {time}
-                        </Button>
-                      </Grid>
-                    );
-                  })}
-                </Grid>
-              </Box>
-            )}
-            
-            <Box className="step-buttons" sx={{ mt: { xs: 2, md: 2.5 } }}>
-              <Button
-                variant="outlined"
-                onClick={handleBack}
-                sx={{
-                  borderRadius: '10px',
-                  py: 1.2,
-                  fontSize: { xs: '1rem', md: '0.95rem' },
-                  mr: { xs: 0, md: 2 },
-                  mb: { xs: 2, md: 0 },
-                  width: { xs: '100%', md: 'auto' }
-                }}
-              >
-                Back
-              </Button>
-              <Button
-                variant="contained"
-                onClick={handleNext}
-                disabled={!formData.date || !formData.time || loadingSlots || errorSlots}
-                sx={{
-                  borderRadius: '10px',
-                  py: 1.2,
-                  fontSize: { xs: '1rem', md: '0.95rem' },
-                  boxShadow: '0 3px 8px rgba(0, 0, 0, 0.1)',
-                  '&:hover': { boxShadow: '0 5px 12px rgba(0, 0, 0, 0.15)' },
-                  width: { xs: '100%', md: 'auto' }
-                }}
-              >
-                Next
-              </Button>
-            </Box>
-          </Box>
-        );
-      case 2:
-        return (
-          <Box sx={{ p: { xs: 2, md: 2.5 } }} className="form-step">
-            <Typography variant="h6" gutterBottom sx={{ mb: { xs: 2, md: 2.5 }, fontWeight: 500 }}>Service Details</Typography>
-            <TextField
-              fullWidth
-              label="Service Type"
-              name="service"
-              value={formData.service}
-              onChange={handleInputChange}
-              required
-              margin="normal"
-              variant="outlined"
-              size="small"
-              sx={{ mb: { xs: 2, md: 2.5 }, '& .MuiOutlinedInput-root': { borderRadius: '10px' } }}
-            />
-            <TextField
-              fullWidth
-              label="Additional Notes"
-              name="notes"
-              value={formData.notes}
-              onChange={handleInputChange}
-              multiline
-              rows={3} /* Slightly fewer rows for compactness */
-              margin="normal"
-              variant="outlined"
-              size="small"
-              sx={{ mb: { xs: 2, md: 2.5 }, '& .MuiOutlinedInput-root': { borderRadius: '10px' } }}
-            />
-            <Box className="step-buttons" sx={{ mt: { xs: 2, md: 2.5 } }}>
-              <Button
-                variant="outlined"
-                onClick={handleBack}
-                sx={{
-                  borderRadius: '10px',
-                  py: 1.2,
-                  fontSize: { xs: '1rem', md: '0.95rem' },
-                  mr: { xs: 0, md: 2 },
-                  mb: { xs: 2, md: 0 },
-                  width: { xs: '100%', md: 'auto' }
-                }}
-              >
-                Back
-              </Button>
-              <Button
-                variant="contained"
-                onClick={handleSubmit}
-                disabled={!formData.service || submittingBooking}
-                sx={{
-                  borderRadius: '10px',
-                  py: 1.2,
-                  fontSize: { xs: '1rem', md: '0.95rem' },
-                  boxShadow: '0 3px 8px rgba(0, 0, 0, 0.1)',
-                  '&:hover': { boxShadow: '0 5px 12px rgba(0, 0, 0, 0.15)' },
-                  width: { xs: '100%', md: 'auto' }
-                }}
-              >
-                {submittingBooking ? <CircularProgress size={24} color="inherit" /> : 'Submit Booking'}
-              </Button>
-            </Box>
-            {submissionError && (
-              <Alert severity="error" sx={{ mt: 3 }}>{submissionError}</Alert>
-            )}
-          </Box>
-        );
-      case 3:
-        return (
-          <Box sx={{ p: { xs: 2, md: 2.5 } }} className="form-step" textAlign="center">
-            <Typography variant="h5" gutterBottom sx={{ mb: 3, fontWeight: 600, color: '#28a745' }}>
-              Booking Confirmed!
-            </Typography>
-            <Typography variant="body1" sx={{ mb: 4 }}>
-              Thank you for your booking. A confirmation email has been sent to {formData.email}.
-            </Typography>
-            <Button
-              variant="contained"
-              onClick={handleStartNewBooking}
-              sx={{
-                borderRadius: '10px',
-                py: 1.2,
-                fontSize: { xs: '1rem', md: '0.95rem' },
-                boxShadow: '0 3px 8px rgba(0, 0, 0, 0.1)',
-                '&:hover': { boxShadow: '0 5px 12px rgba(0, 0, 0, 0.15)' },
-              }}
-            >
-              Start New Booking
-            </Button>
-          </Box>
-        );
-      default:
-        return null;
+      setLoading(false);
     }
   };
 
   return (
-    <Container maxWidth="md">
-      <Paper elevation={4} className="booking-form" sx={{ borderRadius: '12px', p: { xs: 2, md: 3 }, margin: 'auto' }}>
-        <Typography variant="h5" component="h1" gutterBottom align="center" sx={{ mb: { xs: 3, md: 3.5 }, fontWeight: 600, color: '#333' }}>
-          Garage Booking
-        </Typography>
-        <Stepper activeStep={activeStep} alternativeLabel sx={{ mb: { xs: 3, md: 3.5 } }}>
-          {steps.map((label) => (
-            <Step key={label}>
-              <StepLabel StepIconProps={{ sx: { color: '#007bff', '&.Mui-active': { color: '#0056b3' }, '&.Mui-completed': { color: '#007bff' } } }}>{label}</StepLabel>
-            </Step>
-          ))}
-        </Stepper>
-        {renderStepContent(activeStep)}
-      </Paper>
-    </Container>
-  );
-};
+    <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8 font-inter">
+      <div className="bg-white p-6 sm:p-8 lg:p-10 rounded-xl shadow-2xl w-full max-w-lg border border-gray-200">
+        <h2 className="text-3xl font-extrabold text-gray-900 mb-6 text-center">Book Your Service</h2>
+        <p className="text-gray-600 mb-8 text-center">Fill out the form below to book an appointment with our garage.</p>
 
-export default BookingForm; 
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Name Field */}
+          <div>
+            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">Full Name <span className="text-red-500">*</span></label>
+            <input
+              type="text"
+              id="name"
+              name="name"
+              value={formData.name}
+              onChange={handleChange}
+              placeholder="John Doe"
+              className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out"
+              required
+            />
+          </div>
+
+          {/* Email Field */}
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">Email Address <span className="text-red-500">*</span></label>
+            <input
+              type="email"
+              id="email"
+              name="email"
+              value={formData.email}
+              onChange={handleChange}
+              placeholder="you@example.com"
+              className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out"
+              required
+            />
+          </div>
+
+          {/* Phone Number Field */}
+          <div>
+            <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 mb-1">Phone Number <span className="text-red-500">*</span></label>
+            <input
+              type="text"
+              id="phoneNumber"
+              name="phoneNumber"
+              value={formData.phoneNumber}
+              onChange={handleChange}
+              placeholder="e.g., +353 1234567"
+              className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out"
+              required
+            />
+          </div>
+
+          {/* Car Registration Field */}
+          <div>
+            <label htmlFor="carReg" className="block text-sm font-medium text-gray-700 mb-1">Car Registration <span className="text-red-500">*</span></label>
+            <input
+              type="text"
+              id="carReg"
+              name="carReg"
+              value={formData.carReg}
+              onChange={handleChange}
+              placeholder="ABC 123X"
+              className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out"
+              required
+            />
+          </div>
+
+          {/* Car Make Field */}
+          <div>
+            <label htmlFor="carMake" className="block text-sm font-medium text-gray-700 mb-1">Car Make</label>
+            <input
+              type="text"
+              id="carMake"
+              name="carMake"
+              value={formData.carMake}
+              onChange={handleChange}
+              placeholder="Toyota"
+              className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out"
+            />
+          </div>
+
+          {/* Car Model Field */}
+          <div>
+            <label htmlFor="carModel" className="block text-sm font-medium text-gray-700 mb-1">Car Model</label>
+            <input
+              type="text"
+              id="carModel"
+              name="carModel"
+              value={formData.carModel}
+              onChange={handleChange}
+              placeholder="Camry"
+              className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out"
+            />
+          </div>
+
+          {/* Appointment Date Field (Custom Date Picker) */}
+          <div className="relative">
+            <label htmlFor="appointmentDate" className="block text-sm font-medium text-gray-700 mb-1">
+              Preferred Appointment Date <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              id="appointmentDate"
+              name="appointmentDate"
+              value={formData.appointmentDate}
+              readOnly // Make it read-only as selection is via calendar
+              onClick={() => setShowCalendar(!showCalendar)}
+              placeholder="Select a date"
+              className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out cursor-pointer"
+              required
+            />
+            {dateSelectionError && (
+              <p className="text-red-600 text-sm mt-2">{dateSelectionError}</p>
+            )}
+
+            {showCalendar && (
+              <div className="absolute z-10 bg-white border border-gray-300 rounded-lg shadow-lg mt-2 p-4 w-full">
+                {fetchingAvailability ? (
+                  <div className="text-center text-gray-600 mb-4">Loading unavailable dates...</div>
+                ) : availabilityError ? (
+                  <div className="text-center text-red-600 mb-4">{availabilityError}</div>
+                ) : (
+                  <>
+                    <div className="flex justify-between items-center mb-4">
+                      <button type="button" onClick={handlePrevMonth} className="p-2 rounded-full hover:bg-gray-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-600" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                      <span className="text-lg font-semibold text-gray-800">
+                        {monthNames[currentMonth]} {currentYear}
+                      </span>
+                      <button type="button" onClick={handleNextMonth} className="p-2 rounded-full hover:bg-gray-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-600" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-7 gap-1 text-center text-sm">
+                      {dayNames.map(day => (
+                        <div key={day} className="font-medium text-gray-500">
+                          {day}
+                        </div>
+                      ))}
+                      {calendarDays.map((date, index) => {
+                        const dateString = date ? formatDate(date) : null;
+                        const isUnavailable = dateString && unavailableDates.includes(dateString);
+                        const isPastDate = date && date < todayDate; // Use todayDate directly
+                        // New condition: is within the one-month disabled window (today to one month from today inclusive)
+                        const isWithinOneMonthDisabledWindow = date && date >= todayDate && date <= oneMonthFromToday; // Use todayDate and oneMonthFromToday directly
+                        const isWeekend = date && (date.getDay() === 0 || date.getDay() === 6); // Saturday = 6, Sunday = 0
+                        const isSelected = dateString && formData.appointmentDate === dateString;
+                        // A date is disabled if it's explicitly unavailable, in the past, within the one-month disabled window, or is a weekend
+                        const isDisabled = isUnavailable || isPastDate || isWithinOneMonthDisabledWindow || isWeekend;
+
+                        let dayClasses = "p-2 rounded-md transition duration-150 ease-in-out";
+                        if (date) {
+                          if (isDisabled) {
+                            dayClasses += " bg-gray-100 text-gray-400 cursor-not-allowed";
+                          } else if (isSelected) {
+                            dayClasses += " bg-indigo-600 text-white font-bold";
+                          } else {
+                            dayClasses += " hover:bg-indigo-100 cursor-pointer";
+                          }
+                        } else {
+                          dayClasses += " invisible"; // For empty cells
+                        }
+
+                        return (
+                          <div
+                            key={index}
+                            className={dayClasses}
+                            onClick={() => !isDisabled && handleDayClick(date)}
+                          >
+                            {date ? date.getDate() : ''}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            <p className="text-xs text-gray-500 mt-1">
+              Appointments can only be booked at least <span className="font-semibold text-indigo-600">one month in advance</span>. Dates within the next month are disabled. If you need an urgent booking, please contact the garage directly.
+            </p>
+          </div>
+
+          {/* Car Needs Description Field */}
+          <div>
+            <label htmlFor="carNeeds" className="block text-sm font-medium text-gray-700 mb-1">Describe Car Needs <span className="text-red-500">*</span></label>
+            <textarea
+              id="carNeeds"
+              name="carNeeds"
+              rows="4"
+              value={formData.carNeeds}
+              onChange={handleChange}
+              placeholder="e.g., Oil change, brake inspection, strange noise from engine..."
+              className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out resize-y"
+              required
+            ></textarea>
+          </div>
+
+          {/* Submission Feedback Message */}
+          {message && (
+            <div
+              className={`p-3 rounded-md text-sm ${
+                messageType === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+              }`}
+            >
+              {message}
+            </div>
+          )}
+
+          {/* Submit Button */}
+          <button
+            type="submit"
+            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-300 ease-in-out transform hover:scale-105"
+            disabled={loading || fetchingAvailability}
+          >
+            {loading ? (
+              <svg className="animate-spin h-5 w-5 text-white mr-3" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            ) : (
+              'Book Appointment'
+            )}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}

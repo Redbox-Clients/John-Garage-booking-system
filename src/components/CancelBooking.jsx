@@ -1,22 +1,16 @@
 import React, { useState } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { 
-  Container, 
-  Paper, 
-  Typography, 
-  Button, 
-  Box,
-  CircularProgress,
-  Alert
-} from '@mui/material';
+// Removed useSearchParams and useNavigate as they require a Router context
+// import { useSearchParams, useNavigate } from 'react-router-dom';
 
 const CancelBooking = () => {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
+  // const [searchParams] = useSearchParams(); // Removed
+  // const navigate = useNavigate(); // Removed
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState(null);
   const [cancelled, setCancelled] = useState(false);
-  
+
+  // Get bookingId directly from window.location.search
+  const searchParams = new URLSearchParams(window.location.search);
   const bookingId = searchParams.get('bookingId');
 
   const handleCancel = async () => {
@@ -59,98 +53,85 @@ const CancelBooking = () => {
 
   if (!bookingId) {
     return (
-      <Container maxWidth="md">
-        <Paper elevation={4} sx={{ borderRadius: '12px', p: { xs: 2, md: 3 }, margin: 'auto', mt: 4 }}>
-          <Typography variant="h5" component="h1" gutterBottom align="center" sx={{ mb: 3, fontWeight: 600, color: '#333' }}>
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 font-sans">
+        <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 md:p-10 w-full max-w-md text-center">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4">
             Invalid Booking
-          </Typography>
-          <Typography variant="body1" sx={{ mb: 4, textAlign: 'center' }}>
+          </h1>
+          <p className="text-gray-600 mb-6">
             No booking ID provided. Please use the link from your booking confirmation email.
-          </Typography>
-          <Box sx={{ textAlign: 'center' }}>
-            <Button
-              variant="contained"
+          </p>
+          <div className="text-center">
+            <button
               onClick={handleNewBooking}
-              sx={{
-                borderRadius: '10px',
-                py: 1.2,
-                fontSize: { xs: '1rem', md: '0.95rem' },
-                boxShadow: '0 3px 8px rgba(0, 0, 0, 0.1)',
-                '&:hover': { boxShadow: '0 5px 12px rgba(0, 0, 0, 0.15)' },
-              }}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
             >
               Make a New Booking
-            </Button>
-          </Box>
-        </Paper>
-      </Container>
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
   return (
-    <Container maxWidth="md">
-      <Paper elevation={4} sx={{ borderRadius: '12px', p: { xs: 2, md: 3 }, margin: 'auto', mt: 4 }}>
-        <Typography variant="h5" component="h1" gutterBottom align="center" sx={{ mb: 3, fontWeight: 600, color: '#333' }}>
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 font-sans">
+      <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 md:p-10 w-full max-w-md text-center">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4">
           {cancelled ? 'Booking Cancelled' : 'Cancel Booking'}
-        </Typography>
-        
+        </h1>
+
         {!cancelled && (
-          <Typography variant="body1" sx={{ mb: 4, textAlign: 'center' }}>
+          <p className="text-gray-600 mb-6">
             Are you sure you want to cancel this booking? This action cannot be undone.
-          </Typography>
+          </p>
         )}
 
         {cancelled && (
-          <Typography variant="body1" sx={{ mb: 4, textAlign: 'center', color: '#28a745' }}>
+          <p className="text-green-600 font-medium mb-6">
             Your booking has been successfully cancelled.
-          </Typography>
+          </p>
         )}
 
         {error && (
-          <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-md relative mb-6" role="alert">
+            <strong className="font-bold">Error!</strong>
+            <span className="block sm:inline"> {error}</span>
+          </div>
         )}
 
-        <Box sx={{ textAlign: 'center' }}>
+        <div className="flex flex-col sm:flex-row justify-center items-center gap-4">
           {!cancelled && (
-            <Button
-              variant="contained"
+            <button
               onClick={handleCancel}
               disabled={cancelling}
-              sx={{
-                borderRadius: '10px',
-                py: 1.2,
-                fontSize: { xs: '1rem', md: '0.95rem' },
-                boxShadow: '0 3px 8px rgba(0, 0, 0, 0.1)',
-                '&:hover': { boxShadow: '0 5px 12px rgba(0, 0, 0, 0.15)' },
-                mb: 2,
-                backgroundColor: '#dc3545',
-                '&:hover': {
-                  backgroundColor: '#c82333'
-                }
-              }}
+              className={`py-2 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2
+                ${cancelling
+                  ? 'bg-red-300 text-white cursor-not-allowed'
+                  : 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-500'
+                }`}
             >
-              {cancelling ? <CircularProgress size={24} color="inherit" /> : 'Cancel Booking'}
-            </Button>
+              {cancelling ? (
+                <svg className="animate-spin h-5 w-5 text-white mx-auto" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              ) : (
+                'Cancel Booking'
+              )}
+            </button>
           )}
-          
-          <Button
-            variant="contained"
+
+          <button
             onClick={handleNewBooking}
-            sx={{
-              borderRadius: '10px',
-              py: 1.2,
-              fontSize: { xs: '1rem', md: '0.95rem' },
-              boxShadow: '0 3px 8px rgba(0, 0, 0, 0.1)',
-              '&:hover': { boxShadow: '0 5px 12px rgba(0, 0, 0, 0.15)' },
-              ml: cancelled ? 0 : 2
-            }}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
           >
             Make a New Booking
-          </Button>
-        </Box>
-      </Paper>
-    </Container>
+          </button>
+        </div>
+      </div>
+    </div>
   );
 };
 
-export default CancelBooking; 
+export default CancelBooking;

@@ -5,6 +5,10 @@ html, body, #root {
   padding: 0;
 }
 
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* Base styles for the overall application container */
 .app {
   min-height: 100vh;
