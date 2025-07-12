@@ -271,7 +271,7 @@ export default function BookingForm() {
       });
 
       if (response.ok) {
-        setMessage('Booking submitted successfully! The garage will confirm your appointment.');
+        setMessage('Booking submitted successfully! The garage will email your confirmation. Please check your spam folder.');
         setMessageType('success');
         setFormData({
           name: '',
@@ -307,6 +307,17 @@ export default function BookingForm() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const isFormValid = () => {
+    return (
+      formData.name.trim() &&
+      formData.email.trim() &&
+      formData.phoneNumber.trim() &&
+      formData.carReg.trim() &&
+      formData.appointmentDate.trim() &&
+      formData.carNeeds.trim()
+    );
   };
 
   return (
@@ -526,8 +537,14 @@ export default function BookingForm() {
           {/* Submit Button */}
           <button
             type="submit"
-            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-300 ease-in-out transform hover:scale-105"
-            disabled={loading || fetchingAvailability}
+            className={
+              `w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-lg font-semibold 
+              ${loading || fetchingAvailability || !isFormValid() 
+                ? 'bg-gray-400 cursor-not-allowed' 
+                : 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer'} 
+              text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-300 ease-in-out transform hover:scale-105`
+            }
+            disabled={loading || fetchingAvailability || !isFormValid()}
           >
             {loading ? (
               <svg className="animate-spin h-5 w-5 text-white mr-3" viewBox="0 0 24 24">
