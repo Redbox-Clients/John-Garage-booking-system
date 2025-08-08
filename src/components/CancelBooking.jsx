@@ -11,7 +11,12 @@ const CancelBooking = () => {
 
   // Get bookingId directly from window.location.search
   const searchParams = new URLSearchParams(window.location.search);
-  const bookingId = searchParams.get('bookingId');
+  let bookingId = searchParams.get('bookingId');
+  
+  // Fix the timestamp format - replace space with + for timezone offset
+  if (bookingId && bookingId.includes(' 00:00')) {
+    bookingId = bookingId.replace(' 00:00', '+00:00');
+  }
 
   const handleCancel = async () => {
     if (!bookingId) {
