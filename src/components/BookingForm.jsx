@@ -31,8 +31,10 @@ export default function BookingForm() {
   const [unavailableDates, setUnavailableDates] = useState([]); // Stores dates from webhook (YYYY-MM-DD)
   const [fetchingAvailability, setFetchingAvailability] = useState(true); // Loading state for availability fetch
   const [availabilityError, setAvailabilityError] = useState(null); // Error for availability fetch
-  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
-  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  const [calendarState, setCalendarState] = useState({
+    month: new Date().getMonth(),
+    year: new Date().getFullYear(),
+  });
   const [showCalendar, setShowCalendar] = useState(false); // To toggle calendar visibility
   const [dateSelectionError, setDateSelectionError] = useState(null);
 
@@ -95,8 +97,8 @@ export default function BookingForm() {
 
   // Generate calendar days for the current month
   const calendarDays = useMemo(() => {
-    const daysInMonth = getDaysInMonth(currentYear, currentMonth);
-    const firstDayOfWeek = getFirstDayOfMonth(currentYear, currentMonth); // 0 for Sunday
+    const daysInMonth = getDaysInMonth(calendarState.year, calendarState.month);
+    const firstDayOfWeek = getFirstDayOfMonth(calendarState.year, calendarState.month); // 0 for Sunday
 
     const days = [];
     // Add leading empty cells for days before the 1st of the month
@@ -106,13 +108,13 @@ export default function BookingForm() {
 
     // Add actual days of the month
     for (let i = 1; i <= daysInMonth; i++) {
-      const date = new Date(currentYear, currentMonth, i);
+      const date = new Date(calendarState.year, calendarState.month, i);
       // Normalize to start of day for consistent comparison
       date.setHours(0, 0, 0, 0);
       days.push(date);
     }
     return days;
-  }, [currentYear, currentMonth]);
+  }, [calendarState]);
 
   const monthNames = [
     "January", "February", "March", "April", "May", "June",
@@ -121,22 +123,20 @@ export default function BookingForm() {
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   const handlePrevMonth = () => {
-    setCurrentMonth(prevMonth => {
-      if (prevMonth === 0) {
-        setCurrentYear(prevYear => prevYear - 1);
-        return 11;
+    setCalendarState(prev => {
+      if (prev.month === 0) {
+        return { month: 11, year: prev.year - 1 };
       }
-      return prevMonth - 1;
+      return { ...prev, month: prev.month - 1 };
     });
   };
 
   const handleNextMonth = () => {
-    setCurrentMonth(prevMonth => {
-      if (prevMonth === 11) {
-        setCurrentYear(prevYear => prevYear + 1);
-        return 0;
+    setCalendarState(prev => {
+      if (prev.month === 11) {
+        return { month: 0, year: prev.year + 1 };
       }
-      return prevMonth + 1;
+      return { ...prev, month: prev.month + 1 };
     });
   };
 
@@ -258,7 +258,8 @@ export default function BookingForm() {
     try {
       const dataToSend = {
         ...formData,
-        status: 'pending'
+        status: 'pending',
+        created_at: new Date().toISOString()
       };
 
       const url = `${n8nBookingWebhookUrl}${apiKey ? `?key=${apiKey}` : ''}`;
@@ -370,6 +371,9 @@ export default function BookingForm() {
               className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out"
               required
             />
+            <p className="text-xs text-gray-500 mt-1">
+              Please <span className="font-bold text-indigo-600">double-check</span> your phone number. We may use it to contact you about your booking.
+            </p>
           </div>
 
           {/* Car Registration Field */}
@@ -450,7 +454,7 @@ export default function BookingForm() {
                         </svg>
                       </button>
                       <span className="text-lg font-semibold text-gray-800">
-                        {monthNames[currentMonth]} {currentYear}
+                        {monthNames[calendarState.month]} {calendarState.year}
                       </span>
                       <button type="button" onClick={handleNextMonth} className="p-2 rounded-full hover:bg-gray-200">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-600" viewBox="0 0 20 20" fill="currentColor">
@@ -510,14 +514,14 @@ export default function BookingForm() {
 
           {/* Car Needs Description Field */}
           <div>
-            <label htmlFor="carNeeds" className="block text-sm font-medium text-gray-700 mb-1">Describe Car Needs <span className="text-red-500">*</span></label>
+            <label htmlFor="carNeeds" className="block text-sm font-medium text-gray-700 mb-1">Describe Car Needs (ie. Service, brakes, tyres) <span className="text-red-500">*</span></label>
             <textarea
               id="carNeeds"
               name="carNeeds"
               rows="4"
               value={formData.carNeeds}
               onChange={handleChange}
-              placeholder="e.g., Oil change, brake inspection, strange noise from engine..."
+              placeholder="Please describe the type of service you need or what problems you are having with your car"
               className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out resize-y"
               required
             ></textarea>
