@@ -79,20 +79,20 @@ export default function BookingForm() {
   };
 
   // Get today's date (start of the disabled range)
-  const todayDate = useMemo(() => { // Renamed from getTodayDate to todayDate to reflect it's a value, not a function
+  const todayDate = useMemo(() => {
     const today = new Date();
     // Normalize to start of day for accurate comparison
     today.setHours(0, 0, 0, 0);
     return today;
   }, []);
 
-  // Calculate the date one month from today (end of the disabled range)
-  const oneMonthFromToday = useMemo(() => { // Renamed from getOneMonthFromToday to oneMonthFromToday
+  // Calculate the date two weeks from today (end of the disabled range)
+  const twoWeeksFromToday = useMemo(() => {
     const today = new Date();
-    const oneMonthLater = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
+    const twoWeeksLater = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 14);
     // Normalize to end of day for accurate comparison to include the full day
-    oneMonthLater.setHours(23, 59, 59, 999);
-    return oneMonthLater;
+    twoWeeksLater.setHours(23, 59, 59, 999);
+    return twoWeeksLater;
   }, []);
 
   // Generate calendar days for the current month
@@ -161,15 +161,15 @@ export default function BookingForm() {
       setFormData(prevData => ({ ...prevData, appointmentDate: '' }));
       setDateSelectionError(`Date ${dateString} is unavailable. Please choose another date.`);
     }
-    // Check if the date is in the disabled range (today up to one month from today)
-    else if (date >= todayDate && date <= oneMonthFromToday) { // Use todayDate and oneMonthFromToday directly
-      setMessage(`Appointments cannot be booked within the next month. Please select a date after ${formatDate(oneMonthFromToday)}.`);
+    // Check if the date is in the disabled range (today up to two weeks from today)
+    else if (date >= todayDate && date <= twoWeeksFromToday) {
+      setMessage(`Appointments cannot be booked within the next two weeks. Please select a date after ${formatDate(twoWeeksFromToday)}.`);
       setMessageType('error');
       setFormData(prevData => ({ ...prevData, appointmentDate: '' }));
-      setDateSelectionError(`Appointments cannot be booked within the next month. Please select a date after ${formatDate(oneMonthFromToday)}.`);
+      setDateSelectionError(`Appointments cannot be booked within the next two weeks. Please select a date after ${formatDate(twoWeeksFromToday)}.`);
     }
     // Check if the date is in the past
-    else if (date < todayDate) { // Use todayDate directly
+    else if (date < todayDate) {
       setMessage(`You cannot select a past date (${dateString}).`);
       setMessageType('error');
       setFormData(prevData => ({ ...prevData, appointmentDate: '' }));
@@ -243,13 +243,13 @@ export default function BookingForm() {
       setMessageType('error');
       setLoading(false);
       return;
-    } else if (selectedDateObj < todayDate) { // Use todayDate directly
+    } else if (selectedDateObj < todayDate) {
       setMessage(`You cannot select a past date (${formData.appointmentDate}).`);
       setMessageType('error');
       setLoading(false);
       return;
-    } else if (selectedDateObj >= todayDate && selectedDateObj <= oneMonthFromToday) { // Use todayDate and oneMonthFromToday directly
-      setMessage(`Appointments cannot be booked within the next month. Please select a date after ${formatDate(oneMonthFromToday)}.`);
+    } else if (selectedDateObj >= todayDate && selectedDateObj <= twoWeeksFromToday) {
+      setMessage(`Appointments cannot be booked within the next two weeks. Please select a date after ${formatDate(twoWeeksFromToday)}.`);
       setMessageType('error');
       setLoading(false);
       return;
@@ -303,7 +303,7 @@ export default function BookingForm() {
       }
     } catch (error) {
       console.error('Error submitting form:', error);
-      setMessage('Failed to submit your booking. This is most likely due to **Cross-Origin Resource Sharing (CORS)** configuration on your n8n webhook. Please ensure your n8n workflow for `https://redboxrob.app.n8n.cloud/webhook/797f3300-663d-42bb-9337-92790b5d26a8` is active and configured to send `Access-Control-Allow-Origin: *` or your specific application domain in its HTTP Response headers. Also, check your internet connection.');
+      setMessage('Failed to submit your booking. Please try again and check your internet connection.');
       setMessageType('error');
     } finally {
       setLoading(false);
@@ -325,7 +325,7 @@ export default function BookingForm() {
     <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8 font-inter">
       <div className="bg-white p-6 sm:p-8 lg:p-10 rounded-xl shadow-2xl w-full max-w-lg border border-gray-200">
         <h2 className="text-3xl font-extrabold text-gray-900 mb-6 text-center">Book Your Service</h2>
-        <p className="text-gray-600 mb-8 text-center">Fill out the form below to book an appointment with our garage.</p>
+        <p className="text-gray-600 mb-8 text-center">Fill out the form below to book an appointment with The Garage Dunboyne.</p>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Name Field */}
@@ -471,13 +471,13 @@ export default function BookingForm() {
                       {calendarDays.map((date, index) => {
                         const dateString = date ? formatDate(date) : null;
                         const isUnavailable = dateString && unavailableDates.includes(dateString);
-                        const isPastDate = date && date < todayDate; // Use todayDate directly
-                        // New condition: is within the one-month disabled window (today to one month from today inclusive)
-                        const isWithinOneMonthDisabledWindow = date && date >= todayDate && date <= oneMonthFromToday; // Use todayDate and oneMonthFromToday directly
+                        const isPastDate = date && date < todayDate;
+                        // New condition: is within the two-week disabled window (today to two weeks from today inclusive)
+                        const isWithinTwoWeekDisabledWindow = date && date >= todayDate && date <= twoWeeksFromToday;
                         const isWeekend = date && (date.getDay() === 0 || date.getDay() === 6); // Saturday = 6, Sunday = 0
                         const isSelected = dateString && formData.appointmentDate === dateString;
-                        // A date is disabled if it's explicitly unavailable, in the past, within the one-month disabled window, or is a weekend
-                        const isDisabled = isUnavailable || isPastDate || isWithinOneMonthDisabledWindow || isWeekend;
+                        // A date is disabled if it's explicitly unavailable, in the past, within the two-week disabled window, or is a weekend
+                        const isDisabled = isUnavailable || isPastDate || isWithinTwoWeekDisabledWindow || isWeekend;
 
                         let dayClasses = "p-2 rounded-md transition duration-150 ease-in-out";
                         if (date) {
@@ -508,7 +508,7 @@ export default function BookingForm() {
               </div>
             )}
             <p className="text-xs text-gray-500 mt-1">
-              Appointments can only be booked at least <span className="font-semibold text-indigo-600">one month in advance</span>. Dates within the next month are disabled. If you need an urgent booking, please contact the garage directly.
+              Appointments can only be booked at least <span className="font-semibold text-indigo-600">two weeks in advance</span>. Dates within the next two weeks are disabled. If you need an urgent booking, please contact the garage directly.
             </p>
           </div>
 
