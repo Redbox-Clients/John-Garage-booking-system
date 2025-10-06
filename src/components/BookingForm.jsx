@@ -1,4 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createClient } from '@supabase/supabase-js';
+
+// Supabase config
+const supabaseUrl = 'https://cxxsmnajkafbrltyjrfi.supabase.co'; // Replace with your Supabase project URL
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN4eHNtbmFqa2FmYnJsdHlqcmZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE4MjIzNjQsImV4cCI6MjA2NzM5ODM2NH0.LGWqe-Dma8S-ly3WpLGzeFwCgTS1Ef60Ils2Y2JctS0'; // Replace with your anon key
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Your n8n webhook URL for submitting bookings (POST)
+const n8nBookingWebhookUrl = 'https://redboxrob.app.n8n.cloud/webhook/797f3300-663d-42bb-9337-92790b5d26a8';
 
 // Helper function to get days in a month
 const getDaysInMonth = (year, month) => {
@@ -38,37 +47,40 @@ export default function BookingForm() {
   const [showCalendar, setShowCalendar] = useState(false); // To toggle calendar visibility
   const [dateSelectionError, setDateSelectionError] = useState(null);
 
-  // Your n8n webhook URL for availability check (GET)
-  const n8nAvailabilityWebhookUrl = 'https://redboxrob.app.n8n.cloud/webhook/a807a240-f285-4d9e-969b-a3107955c178';
-
-  // Your n8n webhook URL for submitting bookings (POST)
-  const n8nBookingWebhookUrl = 'https://redboxrob.app.n8n.cloud/webhook/797f3300-663d-42bb-9337-92790b5d26a8';
-
   // Define apiKey as an empty string as per instructions, even if not used by this specific n8n webhook
   const apiKey = "";
 
-  // Fetch unavailable dates from n8n on component mount
+  // Fetch unavailable dates from Supabase on component mount
   useEffect(() => {
     const fetchUnavailableDates = async () => {
       try {
         setFetchingAvailability(true);
         setAvailabilityError(null);
-        const response = await fetch(n8nAvailabilityWebhookUrl);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        setUnavailableDates(data.dates || []);
+        // Fetch all bookings from Supabase
+        const { data, error } = await supabase
+          .from('Bookings') // Correct table name
+          .select('*');
+        if (error) throw error;
+        // Apply logic to count occurrences per date
+        const bookings = (data || []);
+        const dateOccurrences = bookings.reduce((acc, cur) => {
+          acc[cur.appointment_date] = (acc[cur.appointment_date] || 0) + 1;
+          return acc;
+        }, {});
+        const datesWithMoreThanOneOccurrence = Object.keys(dateOccurrences).filter(
+          (date) => dateOccurrences[date] >= 1,
+        );
+        setUnavailableDates(datesWithMoreThanOneOccurrence);
       } catch (e) {
-        console.error("Failed to fetch unavailable dates:", e);
-        setAvailabilityError("Failed to load unavailable dates. Please try again later.");
+        console.error('Failed to fetch unavailable dates from Supabase:', e);
+        setAvailabilityError('Failed to load unavailable dates. Please try again later.');
       } finally {
         setFetchingAvailability(false);
       }
     };
 
     fetchUnavailableDates();
-  }, [n8nAvailabilityWebhookUrl, apiKey]);
+  }, [supabaseUrl, supabaseAnonKey]);
 
   // Helper to format date to YYYY-MM-DD
   const formatDate = (date) => {
@@ -284,13 +296,7 @@ export default function BookingForm() {
           appointmentDate: '',
           carNeeds: ''
         });
-        const refreshResponse = await fetch(n8nAvailabilityWebhookUrl);
-        if (refreshResponse.ok) {
-          const refreshedData = await refreshResponse.json();
-          setUnavailableDates(refreshedData.dates || []);
-        } else {
-          console.error('Failed to refresh availability after booking:', refreshResponse.statusText);
-        }
+        // No longer refresh unavailable dates from n8nAvailabilityWebhookUrl
       } else {
         let errorData;
         try {
