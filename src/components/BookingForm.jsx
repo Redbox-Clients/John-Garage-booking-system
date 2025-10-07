@@ -67,10 +67,10 @@ export default function BookingForm() {
           acc[cur.appointment_date] = (acc[cur.appointment_date] || 0) + 1;
           return acc;
         }, {});
-        const datesWithMoreThanOneOccurrence = Object.keys(dateOccurrences).filter(
-          (date) => dateOccurrences[date] >= 1,
+        const datesWithTenOrMoreBookings = Object.keys(dateOccurrences).filter(
+          (date) => dateOccurrences[date] >= 10,
         );
-        setUnavailableDates(datesWithMoreThanOneOccurrence);
+        setUnavailableDates(datesWithTenOrMoreBookings);
       } catch (e) {
         console.error('Failed to fetch unavailable dates from Supabase:', e);
         setAvailabilityError('Failed to load unavailable dates. Please try again later.');
